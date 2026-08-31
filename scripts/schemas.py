@@ -14,3 +14,6 @@ class UserResponse(BaseModel):
 
 class TokenData(BaseModel):
     id: int
+
+class ChatroomResponse(BaseModel):
+    chat: list
