@@ -20,5 +20,5 @@ async def create_user(user: UserCreate,
     return new_user
 
 @router.get("/me", status_code=status.HTTP_200_OK)
-async def get_user(user: UserResponse = Depends(get_current_user)):
+async def get_user(user: UserResponse = Depends(get_current_user)) -> UserResponse:
     return user
