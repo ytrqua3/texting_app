@@ -53,7 +53,7 @@ async def get_chatrooms(session: Session = Depends(get_session),
     print(chatrooms)
     return chatrooms
 
-@router.post("/{id}/add_participants", status_code=status.HTTP_201_CREATED)
+@router.post("/add_participant/{id}", status_code=status.HTTP_201_CREATED)
 async def add_chatroom_participant(id: int,
                                    user_id: int,
                                    session: Session = Depends(get_session),
@@ -75,11 +75,24 @@ async def add_chatroom_participant(id: int,
     session.commit()
     return
 
-@router.put("/{id}/make_admin")
+@router.delete("/remove_participant/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_chatroom_participant(id: int,
+                                   user_id: int,
+                                   session: Session = Depends(get_session),
+                                   current_user: UserResponse = Depends(oauth.get_current_user)):
+    check_is_admin(session, current_user, id)
+    chatroom_association = session.query(ChatroomParticipants) .filter(ChatroomParticipants.user_id == user_id, ChatroomParticipants.chatroom_id == id).one_or_none()
+    if not chatroom_association:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not in chatroom")
+
+    session.delete(chatroom_association)
+    session.commit()
+
+@router.put("/make_admin/{id}")
 async def make_admin(id: int,
                      user_id: int,
                      session: Session = Depends(get_session),
-                     current_user: User = Depends(oauth.get_current_user)):
+                     current_user: UserResponse = Depends(oauth.get_current_user)):
     check_is_admin(session, current_user, id)
 
     user = session.query(ChatroomParticipants).filter(ChatroomParticipants.user_id == user_id, ChatroomParticipants.chatroom_id == id).one_or_none()
@@ -87,3 +100,17 @@ async def make_admin(id: int,
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
     user.is_admin = True
     session.commit()
+
+@router.put("/remove_admin/{id}")
+async def remove_admin(id: int,
+                     user_id: int,
+                     session: Session = Depends(get_session),
+                     current_user: UserResponse = Depends(oauth.get_current_user)):
+    check_is_admin(session, current_user, id)
+
+    user = session.query(ChatroomParticipants).filter(ChatroomParticipants.user_id == user_id, ChatroomParticipants.chatroom_id == id).one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+    user.is_admin = False
+    session.commit()
+
