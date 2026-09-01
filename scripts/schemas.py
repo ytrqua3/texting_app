@@ -16,4 +16,8 @@ class TokenData(BaseModel):
     id: int
 
 class ChatroomResponse(BaseModel):
-    chat: list
+    name: str
+    id: int
+
+class ChatroomCreate(BaseModel):
+    name: str

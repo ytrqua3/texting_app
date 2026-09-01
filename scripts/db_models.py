@@ -1,4 +1,4 @@
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session, relationship
 from sqlalchemy import ForeignKey
 import datetime
 from sqlalchemy import func
@@ -18,26 +18,32 @@ class User(Base):
     password: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
+    chatrooms: Mapped[list[ChatroomParticipants]] = relationship(back_populates="user")
+
 class ChatRoom(Base):
     __tablename__ = "chatrooms"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(nullable=False)
 
 class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    chatroom_id: Mapped[int] = mapped_column(ForeignKey("chatrooms.id"))
+    chatroom_id: Mapped[int] = mapped_column(ForeignKey("chatrooms.id", ondelete="CASCADE"))
     content: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
 
 class ChatroomParticipants(Base):
     __tablename__ = "chatroom_participants"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    chatroom_id: Mapped[int] = mapped_column(ForeignKey("chatrooms.id"))
+    chatroom_id: Mapped[int] = mapped_column(ForeignKey("chatrooms.id", ondelete="CASCADE"), primary_key=True)
     joined_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    is_admin: Mapped[bool] = mapped_column(default=False)
+
+    user: Mapped[User] = relationship(back_populates="chatrooms")
 
 def create_all_tables():
     Base.metadata.create_all(engine)
