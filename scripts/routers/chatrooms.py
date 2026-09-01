@@ -25,6 +25,29 @@ async def create_chatroom(chatroom: ChatroomCreate,
     session.commit()
     return new_chat
 
+@router.get("/{id}", status_code=status.HTTP_200_OK)
+async def read_latest_messages(id: int,
+                        limit: int = 100,
+                        session: Session = Depends(get_session),
+                        current_user: UserResponse = Depends(oauth.get_current_user)) -> list[MessageResponse]:
+    check_participant_in_chatroom(session, current_user, id)
+
+    result = session.query(Message.content, Message.owner_id, Message.created_at).where(Message.chatroom_id == id).order_by(Message.created_at.desc()).limit(limit).all()
+    return result
+
+@router.post("/{id}", status_code=status.HTTP_201_CREATED)
+async def send_message(id: int,
+                       message: str,
+                       session: Session = Depends(get_session),
+                       current_user: UserResponse = Depends(oauth.get_current_user)) -> MessageResponse:
+    check_participant_in_chatroom(session, current_user, id)
+
+    new_message = Message(content=message, chatroom_id = id, owner_id = current_user.id)
+
+    session.add(new_message)
+    session.commit()
+    session.refresh(new_message)
+    return new_message
 
 @router.get("/participant/{id}")
 async def get_chatroom_participants(id: int,
@@ -103,27 +126,3 @@ async def remove_admin(id: int,
             admin.is_admin = False
             session.commit()
             return
-
-@router.get("/{id}", status_code=status.HTTP_200_OK)
-async def read_latest_messages(id: int,
-                        limit: int = 100,
-                        session: Session = Depends(get_session),
-                        current_user: UserResponse = Depends(oauth.get_current_user)) -> list[MessageResponse]:
-    check_participant_in_chatroom(session, current_user, id)
-
-    result = session.query(Message.content, Message.owner_id, Message.created_at).where(Message.chatroom_id == id).order_by(Message.created_at.desc()).limit(limit).all()
-    return result
-
-@router.post("/{id}", status_code=status.HTTP_201_CREATED)
-async def send_message(id: int,
-                       message: str,
-                       session: Session = Depends(get_session),
-                       current_user: UserResponse = Depends(oauth.get_current_user)) -> MessageResponse:
-    check_participant_in_chatroom(session, current_user, id)
-
-    new_message = Message(content=message, chatroom_id = id, owner_id = current_user.id)
-
-    session.add(new_message)
-    session.commit()
-    session.refresh(new_message)
-    return new_message
