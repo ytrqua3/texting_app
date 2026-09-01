@@ -1,31 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
-from scripts.schemas import ChatroomResponse, UserResponse, ChatroomCreate
-from scripts.db_models import get_session, ChatRoom, ChatroomParticipants, User
+from scripts.schemas import ChatroomResponse, UserResponse, ChatroomCreate, MessageResponse, ChatroomParticipantResponse
+from scripts.db_models import get_session, ChatRoom, ChatroomParticipants, User, Message
 from scripts import oauth
+from scripts.utils import check_is_admin, check_participant_in_chatroom
 
 router = APIRouter(prefix="/chatrooms", tags=["chatrooms"])
-
-def check_is_admin(session: Session,
-                current_user: UserResponse,
-                id):
-    result = check_participant_in_chatroom(session, current_user, id)
-
-    if not result:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"User is not an admin of chatroom {id}")
-
-def check_participant_in_chatroom(session: Session,
-                                  current_user: UserResponse,
-                                  id):
-    # check if chatroom exists and if user is in chatroom and if user is chatroom's admin
-    result = session.query(ChatroomParticipants.is_admin).filter(ChatroomParticipants.user_id == current_user.id,
-                                                                 ChatroomParticipants.chatroom_id == id).one_or_none()
-
-    if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"User is not in chatroom {id} or chatroom {id} does not exist")
-    return result
 
 @router.post("")
 async def create_chatroom(chatroom: ChatroomCreate,
@@ -43,17 +25,18 @@ async def create_chatroom(chatroom: ChatroomCreate,
     session.commit()
     return new_chat
 
-@router.get("/")
-async def get_chatrooms(session: Session = Depends(get_session),
-                        current_user: UserResponse = Depends(oauth.get_current_user)):
-    result = session.scalars(User).where(User.id == current_user.id)
-    if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    chatrooms = result.chatrooms
-    print(chatrooms)
-    return chatrooms
 
-@router.post("/add_participant/{id}", status_code=status.HTTP_201_CREATED)
+@router.get("/participant/{id}")
+async def get_chatroom_participants(id: int,
+                                    session: Session = Depends(get_session),
+                                    current_user: UserResponse = Depends(oauth.get_current_user)) -> list[ChatroomParticipantResponse]:
+    check_participant_in_chatroom(session, current_user, id)
+
+    result = session.query(ChatroomParticipants).filter(ChatroomParticipants.chatroom_id == id).all()
+
+    return result
+
+@router.post("/participant/{id}", status_code=status.HTTP_201_CREATED)
 async def add_chatroom_participant(id: int,
                                    user_id: int,
                                    session: Session = Depends(get_session),
@@ -75,7 +58,7 @@ async def add_chatroom_participant(id: int,
     session.commit()
     return
 
-@router.delete("/remove_participant/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/participant/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_chatroom_participant(id: int,
                                    user_id: int,
                                    session: Session = Depends(get_session),
@@ -108,9 +91,39 @@ async def remove_admin(id: int,
                      current_user: UserResponse = Depends(oauth.get_current_user)):
     check_is_admin(session, current_user, id)
 
-    user = session.query(ChatroomParticipants).filter(ChatroomParticipants.user_id == user_id, ChatroomParticipants.chatroom_id == id).one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
-    user.is_admin = False
-    session.commit()
+    admins = session.query(ChatroomParticipants).filter(ChatroomParticipants.is_admin == True, ChatroomParticipants.chatroom_id == id).all()
+    if not admins or user_id not in admins:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found as admin")
 
+    if len(admins) == 1:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user is last admin in the group")
+
+    for admin in admins:
+        if admin.user_id == user_id:
+            admin.is_admin = False
+            session.commit()
+            return
+
+@router.get("/{id}", status_code=status.HTTP_200_OK)
+async def read_latest_messages(id: int,
+                        limit: int = 100,
+                        session: Session = Depends(get_session),
+                        current_user: UserResponse = Depends(oauth.get_current_user)) -> list[MessageResponse]:
+    check_participant_in_chatroom(session, current_user, id)
+
+    result = session.query(Message.content, Message.owner_id, Message.created_at).where(Message.chatroom_id == id).order_by(Message.created_at.desc()).limit(limit).all()
+    return result
+
+@router.post("/{id}", status_code=status.HTTP_201_CREATED)
+async def send_message(id: int,
+                       message: str,
+                       session: Session = Depends(get_session),
+                       current_user: UserResponse = Depends(oauth.get_current_user)) -> MessageResponse:
+    check_participant_in_chatroom(session, current_user, id)
+
+    new_message = Message(content=message, chatroom_id = id, owner_id = current_user.id)
+
+    session.add(new_message)
+    session.commit()
+    session.refresh(new_message)
+    return new_message
